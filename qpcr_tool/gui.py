@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QDoubleSpinBox,
     QFileDialog,
     QFrame,
     QGroupBox,
@@ -106,8 +107,8 @@ FILL_DIRECTION_OPTIONS = (
 )
 
 SPLIT_TOOLTIP = (
-    "勾选（推荐）：同一个样本名下每个基因的第 N 个孔视为同一只动物，\n"
-    "每个目标基因孔与同一只动物自己的内参孔 1:1 配对，个体间的上样量差异\n"
+    "勾选（推荐）：同一个样本名下每个基因的第 N 个孔视为同一个生物学重复，\n"
+    "每个目标基因孔与同一个生物学重复自己的内参孔 1:1 配对，个体间的上样量差异\n"
     "才能被真正校正掉。下机表里 CT 会被临时拆成 CT-1 / CT-2 / CT-3，\n"
     "但分组、导出仍按原始样本名 CT 进行。\n\n"
     "取消勾选：同名复孔的内参先取平均，再作为该样本所有目标基因孔的基线。\n"
@@ -417,6 +418,7 @@ class MainWindow(QMainWindow):
         self._control_index = 0
         self._control_buttons: QButtonGroup | None = None
         self._qc_flags: dict[tuple[str, str], float] = {}
+        self._undetected_mode = "max_cycle"
         self._updating = False
 
         self.setWindowTitle(WINDOW_TITLE)
@@ -474,7 +476,7 @@ class MainWindow(QMainWindow):
         self.summary_label.setObjectName("summaryLabel")
         outer.addWidget(self.summary_label)
 
-        # 拆分歧义、方向不一致、整只动物出局这类问题必须一眼看见，不能只躺在结果页底部
+        # 拆分歧义、方向不一致、整个生物学重复出局这类问题必须一眼看见，不能只躺在结果页底部
         self.alert_banner = QLabel("", box)
         self.alert_banner.setObjectName("alertBanner")
         self.alert_banner.setWordWrap(True)
@@ -550,6 +552,25 @@ class MainWindow(QMainWindow):
         direction_row.addWidget(self.direction_combo, 1)
         layout.addLayout(direction_row)
 
+        undetected_row = QHBoxLayout()
+        undetected_row.setSpacing(6)
+        undetected_row.addWidget(QLabel("未检出孔", box))
+        self.undetected_combo = QComboBox(box)
+        self.undetected_combo.addItem("按最大循环数参与", "max_cycle")
+        self.undetected_combo.addItem("剔除，不参与统计", "exclude")
+        self.undetected_combo.setToolTip("Cq 为空、NA 或 Undetermined 的孔仍保留 Target/Sample/孔位信息；默认按最大循环数参与计算。")
+        self.undetected_combo.currentIndexChanged.connect(self._on_undetected_policy_changed)
+        undetected_row.addWidget(self.undetected_combo, 1)
+        undetected_row.addWidget(QLabel("最大循环数", box))
+        self.max_cycle_spin = QDoubleSpinBox(box)
+        self.max_cycle_spin.setRange(1.0, 100.0)
+        self.max_cycle_spin.setDecimals(1)
+        self.max_cycle_spin.setValue(40.0)
+        self.max_cycle_spin.setToolTip("protocol 的最大循环数，可编辑。")
+        self.max_cycle_spin.valueChanged.connect(self._on_max_cycle_changed)
+        undetected_row.addWidget(self.max_cycle_spin)
+        layout.addLayout(undetected_row)
+
         self.split_hint = QLabel("导入文件后这里会显示拆分结果", box)
         self.split_hint.setObjectName("hintLabel")
         self.split_hint.setWordWrap(True)
@@ -572,6 +593,8 @@ class MainWindow(QMainWindow):
         self.group_table.setAlternatingRowColors(True)
         self.group_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.group_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.group_table.setEditTriggers(QAbstractItemView.EditTrigger.EditKeyPressed)
+        self.group_table.cellDoubleClicked.connect(self._on_group_double_clicked)
         self.group_table.itemChanged.connect(self._on_group_item_changed)
         header = self.group_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
@@ -611,15 +634,15 @@ class MainWindow(QMainWindow):
         return self.tabs
 
     def _build_pairing_tab(self) -> QWidget:
-        """配对预览：用户核对「哪几个孔属于同一只动物」的唯一手段。"""
+        """配对预览：用户核对「哪几个孔属于同一个生物学重复」的唯一手段。"""
         page = QWidget(self)
         layout = QVBoxLayout(page)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(8)
 
         top = QLabel(
-            "每个原始样本一个小节，行是生物学重复（一只动物），列是各基因，"
-            "格子里是这只动物在该基因上用的孔。同一行的孔必须真的来自同一只动物，"
+            "每个原始样本一个小节，行是生物学重复（一个生物学重复），列是各基因，"
+            "格子里是这个生物学重复在该基因上用的孔。同一行的孔必须真的来自同一个生物学重复，"
             "否则内参就配错了。",
             page,
         )
@@ -639,7 +662,7 @@ class MainWindow(QMainWindow):
         )
         layout.addWidget(self.pairing_table, 1)
 
-        self.pairing_hint = QLabel("导入文件后这里会显示每只动物的孔位配对", page)
+        self.pairing_hint = QLabel("导入文件后这里会显示每个生物学重复的孔位配对", page)
         self.pairing_hint.setObjectName("hintLabel")
         self.pairing_hint.setWordWrap(True)
         layout.addWidget(self.pairing_hint)
@@ -769,6 +792,7 @@ class MainWindow(QMainWindow):
         """读取下机文件并刷新界面。解析失败时抛 ReaderError。"""
         plate = read_plate(path)
         self.plate = plate
+        self._apply_undetected_policy()
         self.result = None
         self.wide = None
         self._result_report = None
@@ -803,6 +827,8 @@ class MainWindow(QMainWindow):
             self.groups,
             self.reference_targets(),
             self.control_group_name(),
+            self._undetected_policy(),
+            float(self.max_cycle_spin.value()),
         )
         self.result = result
         self.wide = build_wide_table(result)
@@ -918,6 +944,37 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ 生物学重复
 
+    def _undetected_policy(self) -> str:
+        return str(self.undetected_combo.currentData() or "max_cycle")
+
+    def _apply_undetected_policy(self) -> None:
+        """按当前策略处理原始 Cq 为空的未检出孔，不改变孔位和原始文本。"""
+        if self.plate is None:
+            return
+        use_max = self._undetected_policy() == "max_cycle"
+        max_cycle = float(self.max_cycle_spin.value())
+        for well in self.plate.wells:
+            if not well.undetected:
+                continue
+            well.cq = max_cycle if use_max else None
+            well.included = use_max
+        self._undetected_mode = self._undetected_policy()
+
+    def _on_undetected_policy_changed(self, _index: int) -> None:
+        if self.plate is None:
+            return
+        self._apply_undetected_policy()
+        self._populate_well_table()
+        self._update_alerts()
+        self._mark_dirty()
+
+    def _on_max_cycle_changed(self, _value: float) -> None:
+        if self.plate is None or self._undetected_policy() != "max_cycle":
+            return
+        self._apply_undetected_policy()
+        self._populate_well_table()
+        self._mark_dirty()
+
     def _apply_replicate_split(self) -> None:
         """按当前开关与方向重做拆分。关掉时把样本名还原成下机表里的原名。
 
@@ -967,7 +1024,7 @@ class MainWindow(QMainWindow):
             report = self.split_report
             total = sum(report.replicate_counts[n] for n in report.split_samples)
             text = (
-                f"已把 {len(report.split_samples)} 个样本拆成 {total} 只动物；"
+                f"已把 {len(report.split_samples)} 个样本拆成 {total} 个生物学重复；"
                 "请到「配对预览」核对"
             )
             if report.skipped:
@@ -979,7 +1036,7 @@ class MainWindow(QMainWindow):
         self.split_hint.setToolTip(detail)
 
     def _populate_pairing_table(self) -> None:
-        """每个原始样本一个小节：标题行写样本名与方向，下面每行是一只动物。"""
+        """每个原始样本一个小节：标题行写样本名与方向，下面每行是一个生物学重复。"""
         table = self.pairing_table
         self.previews = build_pairing_preview(self.plate) if self.plate else []
         targets: list[str] = []
@@ -1028,7 +1085,7 @@ class MainWindow(QMainWindow):
 
     def _pairing_hint_text(self, flagged: list[str]) -> str:
         if self.plate is None:
-            return "导入文件后这里会显示每只动物的孔位配对"
+            return "导入文件后这里会显示每个生物学重复的孔位配对"
         if flagged:
             return (
                 f"⚠ {'、'.join(flagged)} 的排列方向有歧义或不一致，上面已高亮，"
@@ -1113,18 +1170,11 @@ class MainWindow(QMainWindow):
             table.setRowCount(0)
             table.setRowCount(len(self.groups))
             for row, group in enumerate(self.groups):
-                host = QWidget(table)
-                host.setObjectName("cellHost")
-                host_layout = QHBoxLayout(host)
-                host_layout.setContentsMargins(0, 0, 0, 0)
-                host_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                radio = QRadioButton(host)
-                radio.setToolTip("设为对照组")
-                radio.setChecked(row == self._control_index)
-                host_layout.addWidget(radio)
-                self._control_buttons.addButton(radio, row)
-                table.setCellWidget(row, 0, host)
-
+                marker = QTableWidgetItem("●" if row == self._control_index else "")
+                marker.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                marker.setToolTip("双击该行设置为对照组")
+                marker.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+                table.setItem(row, 0, marker)
                 name_item = QTableWidgetItem(group.name)
                 name_item.setToolTip("双击可修改组名")
                 table.setItem(row, 1, name_item)
@@ -1138,22 +1188,25 @@ class MainWindow(QMainWindow):
         finally:
             self._updating = False
 
+    def _on_group_double_clicked(self, row: int, _column: int) -> None:
+        """双击整行设置对照；单击只负责选择行。"""
+        if 0 <= row < len(self.groups):
+            self._select_control_row(row)
+            self.group_table.selectRow(row)
+            self.statusBar().showMessage(f"已将「{self.groups[row].name}」设为对照组", 5000)
+
     def _on_control_toggled(self, index: int, checked: bool) -> None:
         if checked and not self._updating:
             self._control_index = index
             self._mark_dirty()
 
     def _select_control_row(self, index: int) -> None:
-        self._control_index = index
-        if self._control_buttons is None:
+        if not 0 <= index < len(self.groups):
             return
-        button = self._control_buttons.button(index)
-        if button is not None:
-            self._updating = True
-            try:
-                button.setChecked(True)
-            finally:
-                self._updating = False
+        self._control_index = index
+        self._populate_group_table()
+        self._populate_well_table()
+        self._mark_dirty()
 
     def _on_group_item_changed(self, item: QTableWidgetItem) -> None:
         """把用户改过的组名同步回 SampleGroup，并刷新孔位表的分组列。"""
@@ -1209,6 +1262,10 @@ class MainWindow(QMainWindow):
         return well.target, well.original_sample or well.sample
 
     def _note_for(self, well: WellRecord) -> str:
+        if well.undetected:
+            if well.valid:
+                return f"原始 Cq 未检出，按 {well.cq:.1f} 参与"
+            return "原始 Cq 未检出，未参与"
         if not well.valid:
             return f"Cq 无效：{well.cq_text or '空'}"
         sd = self._qc_flags.get(self._qc_key(well))
@@ -1411,7 +1468,7 @@ class MainWindow(QMainWindow):
             self.warning_view.setPlainText("无异常")
 
     def collect_alerts(self) -> list[str]:
-        """需要顶到摘要行旁边的高危提示：拆分歧义、方向不一致、降级、整只动物出局。
+        """需要顶到摘要行旁边的高危提示：拆分歧义、方向不一致、降级、整个生物学重复出局。
 
         普通说明（如「没有发现需要拆分的生物学重复」）不算，免得警告条天天亮着。
         """

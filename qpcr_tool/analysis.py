@@ -21,7 +21,7 @@ CQ_SD_WARN = 0.5
 
 # 两条需要在界面上醒目展示的警告，界面靠这两个前缀把它们从普通警告里挑出来
 MISSING_REFERENCE_PREFIX = "以下样本缺少完整的内参数据，已整体跳过："
-SPLIT_DROPOUT_PREFIX = "注意：生物学重复配对模式下，内参孔失效会让整只动物的所有基因一起退出计算。"
+SPLIT_DROPOUT_PREFIX = "注意：生物学重复配对模式下，内参孔失效会让整个生物学重复的所有基因一起退出计算。"
 
 
 class AnalysisError(Exception):
@@ -96,6 +96,8 @@ class AnalysisResult:
     ref_means: dict[str, float] = field(default_factory=dict)
     qc: list[ReplicateQC] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    undetected_policy: str = "max_cycle"
+    max_cycle: float = 40.0
 
     def stat(self, target: str, group: str) -> GroupStat | None:
         return self.stats.get((target, group))
@@ -167,6 +169,8 @@ def analyze(
     groups: list[SampleGroup],
     reference_targets: list[str],
     control_group: str,
+    undetected_policy: str = "max_cycle",
+    max_cycle: float = 40.0,
 ) -> AnalysisResult:
     """执行 2^-ΔΔCt 计算。groups 的顺序即导出宽表的列顺序。"""
     if not reference_targets:
@@ -186,7 +190,7 @@ def analyze(
         warnings.append(
             MISSING_REFERENCE_PREFIX + "、".join(labels[s] for s in missing_ref)
         )
-        # 拆分之后一个内参孔失效就带走整只动物的所有基因，这个代价必须说清楚
+        # 拆分之后一个内参孔失效就带走整个生物学重复的所有基因，这个代价必须说清楚
         dropped = [
             w for w in wells
             if w.usable and w.sample in set(missing_ref) and w.target not in reference_targets
@@ -239,6 +243,8 @@ def analyze(
         reference_targets=list(reference_targets),
         ref_means=ref_means,
         warnings=warnings,
+        undetected_policy=undetected_policy,
+        max_cycle=max_cycle,
     )
     if not result.targets:
         raise AnalysisError(

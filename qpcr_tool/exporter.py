@@ -126,7 +126,7 @@ def export_excel(
 ) -> None:
     """导出双 sheet 的 Excel 报告。目标文件被占用时抛 ExportError。
 
-    ``split_report`` 传入时，明细表会额外记录每个孔属于哪只动物、本次用的复孔处理
+    ``split_report`` 传入时，明细表会额外记录每个孔属于哪个生物学重复、本次用的复孔处理
     模式和孔位排列方向；不传表示按技术复孔取平均，报告里会如实写明。
     """
     workbook = Workbook()
@@ -268,7 +268,9 @@ def _exclusion_reason(well: WellRecord, result: AnalysisResult) -> str:
     is_reference = well.target in result.reference_targets
     if is_reference:
         reasons.append("内参基因")
-    if not well.valid:
+    if well.undetected:
+        reasons.append("未检出（按最大循环数参与）" if well.valid else "未检出（未参与）")
+    elif not well.valid:
         reasons.append("Cq 无效")
     elif not well.included:
         reasons.append("手动剔除")
@@ -381,6 +383,8 @@ def _write_parameters(
         ["分析基因", "、".join(result.targets)],
         ["分组顺序", " → ".join(result.groups)],
         ["孔数（总数 / 参与计算）", f"{len(plate.wells)} / {usable}"],
+        ["未检出孔处理", ("按最大循环数参与" if result.undetected_policy == "max_cycle" else "剔除，不参与统计")],
+        ["最大循环数", result.max_cycle],
         *_split_rows(split_report),
         [
             "内参基线",

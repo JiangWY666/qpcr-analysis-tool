@@ -136,6 +136,34 @@ class GuiSmokeTest(unittest.TestCase):
             (EXPECTED_WIDE_COLUMNS, EXPECTED_WIDE_ROWS),
         )
 
+    def test_05b_undetected_policy_uses_editable_max_cycle(self) -> None:
+        """空 Cq 的 Target/Sample 行默认按 40 参与，也可切换为剔除。"""
+        path = write_plate_file(
+            self.tmpdir,
+            "未检出.xlsx",
+            samples=["CT"],
+            targets=["GAPDH", "IL6"],
+        )
+        book = load_workbook(path)
+        sheet = book.active
+        sheet["D4"] = None
+        book.save(path)
+        book.close()
+
+        self.window.load_file(path)
+        undetected = next(w for w in self.window.plate.wells if w.target == "IL6")
+        self.assertTrue(undetected.undetected)
+        self.assertEqual(undetected.cq, 40.0)
+        self.assertTrue(undetected.included)
+
+        self.window.max_cycle_spin.setValue(38.0)
+        self.assertEqual(undetected.cq, 38.0)
+        self.window.undetected_combo.setCurrentIndex(1)
+        self.assertIsNone(undetected.cq)
+        self.assertFalse(undetected.included)
+        self.window.undetected_combo.setCurrentIndex(0)
+        self.assertEqual(undetected.cq, 38.0)
+        self.assertTrue(undetected.included)
     def test_05a_merge_checkbox_works_while_split_is_on(self) -> None:
         """回归：PBS1/PBS2 这种「不同名的生物学重复」要能靠合并选项并成一组。
 
@@ -264,7 +292,7 @@ class GuiSmokeTest(unittest.TestCase):
 
     @requires_sample_file
     def test_09_alert_banner_shows_dropout(self) -> None:
-        """内参孔失效导致整只动物出局时，顶部警告条必须出现。"""
+        """内参孔失效导致整个生物学重复出局时，顶部警告条必须出现。"""
         self.window.load_file(sample_file())
         self.window.set_reference_targets([REFERENCE_GENE])
         for well in self.window.plate.wells:
@@ -275,7 +303,7 @@ class GuiSmokeTest(unittest.TestCase):
         self.assertFalse(self.window.alert_banner.isHidden())
         text = self.window.alert_banner.text()
         self.assertIn("CT 的第 2 号生物学重复", text)
-        self.assertIn("整只动物的所有基因", text)
+        self.assertIn("整个生物学重复的所有基因", text)
         self.assertEqual(len(self.window.collect_alerts()), 2)
 
     @requires_sample_file

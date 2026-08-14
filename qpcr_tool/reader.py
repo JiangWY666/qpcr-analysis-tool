@@ -74,6 +74,7 @@ class WellRecord:
     included: bool = True
     original_sample: str = ""    # 拆分前的样本名，拆分后用于回溯和分组
     replicate_index: int = 0     # 该孔在其样本内的生物学重复序号，1-based；0 表示尚未编号
+    undetected: bool = False      # 原始 Cq 为空或为 Undetermined 等未检出标记
 
     @property
     def valid(self) -> bool:
@@ -157,18 +158,18 @@ def _find_header_row(rows: list[list[Any]]) -> tuple[int, dict[str, int]] | None
     return None
 
 
-def _parse_cq(raw: Any) -> tuple[float | None, str]:
-    """返回 (数值或 None, 原始文本)。0 与负值按未检出处理。"""
+def _parse_cq(raw: Any) -> tuple[float | None, str, bool]:
+    """返回 (数值或 None, 原始文本, 是否未检出)。"""
     text = _text(raw)
     if text.lower() in INVALID_CQ_TEXT:
-        return None, text
+        return None, text, True
     try:
         value = float(str(raw).strip())
     except (TypeError, ValueError):
-        return None, text
+        return None, text, True
     if value <= 0:
-        return None, text
-    return value, text
+        return None, text, True
+    return value, text, False
 
 
 def _read_run_info(workbook) -> list[tuple[str, str]]:
@@ -275,7 +276,7 @@ def read_plate(file_path: str) -> PlateData:
         sample = _text(cell(row, "sample"))
         if not target and not sample:
             continue  # 空孔
-        cq_value, cq_text = _parse_cq(cell(row, "cq"))
+        cq_value, cq_text, undetected = _parse_cq(cell(row, "cq"))
         well_name = _text(cell(row, "well")) or f"R{offset}"
         plate.wells.append(
             WellRecord(
@@ -287,6 +288,7 @@ def read_plate(file_path: str) -> PlateData:
                 cq=cq_value,
                 cq_text=cq_text,
                 included=cq_value is not None,
+                undetected=undetected,
                 original_sample=sample or "(未命名样本)",
             )
         )

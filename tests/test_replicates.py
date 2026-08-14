@@ -37,7 +37,7 @@ VIRTUAL_SAMPLES = [f"{s}-{i}" for s in ORIGINAL_SAMPLES for i in (1, 2, 3)]
 REFERENCE = ["GAPDH"]
 CONTROL = "CT"
 
-# 板子布局：每个原始样本的三个孔是三只动物，同一列的孔属于同一号生物学重复。
+# 板子布局：每个原始样本的三个孔是三个生物学重复，同一列的孔属于同一号生物学重复。
 #   CT               A01 A02 A03(GAPDH) A04 A05 A06(IL1b) E01 E02 E03(IL6) E04 E05 E06(TNFa)
 #   LPS BALF         C01 C02 C03        C04 C05 C06       G01 G02 G03      G04 G05 G06
 EXPECTED_PAIRING = {
@@ -798,7 +798,7 @@ class TestReplicateQCAfterSplit(unittest.TestCase):
 
 @requires_sample_file
 class TestMissingReferenceMessage(unittest.TestCase):
-    """缺内参的警告要能回溯到「哪个样本的第几号重复」，并说明整只动物出局。"""
+    """缺内参的警告要能回溯到「哪个样本的第几号重复」，并说明整个生物学重复出局。"""
 
     @classmethod
     def setUpClass(cls):
@@ -815,9 +815,9 @@ class TestMissingReferenceMessage(unittest.TestCase):
         self.assertIn("CT 的第 2 号生物学重复", text)
         self.assertNotIn("CT-2", text)
 
-    def test_提示了整只动物的所有基因都会退出(self):
+    def test_提示了整个生物学重复的所有基因都会退出(self):
         text = "\n".join(self.result.warnings)
-        self.assertIn("整只动物的所有基因", text)
+        self.assertIn("整个生物学重复的所有基因", text)
         self.assertIn("3 个目标基因孔", text)  # IL1b / IL6 / TNFa 各一个
 
     def test_确实少了三个孔(self):
