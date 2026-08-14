@@ -419,6 +419,7 @@ class MainWindow(QMainWindow):
         self._control_buttons: QButtonGroup | None = None
         self._qc_flags: dict[tuple[str, str], float] = {}
         self._undetected_mode = "max_cycle"
+        self._font_point_size = 10.0
         self._updating = False
 
         self.setWindowTitle(WINDOW_TITLE)
@@ -472,6 +473,24 @@ class MainWindow(QMainWindow):
         row.addWidget(self.run_info_btn)
         outer.addLayout(row)
 
+        display_row = QHBoxLayout()
+        display_row.setSpacing(6)
+        display_row.addWidget(QLabel("字体大小", box))
+        self.font_size_spin = QDoubleSpinBox(box)
+        self.font_size_spin.setRange(8.0, 18.0)
+        self.font_size_spin.setDecimals(1)
+        self.font_size_spin.setSingleStep(0.5)
+        self.font_size_spin.setValue(self._font_point_size)
+        self.font_size_spin.setSuffix(" pt")
+        self.font_size_spin.setToolTip("调整整个软件的字体大小。")
+        self.font_size_spin.valueChanged.connect(self._on_font_size_changed)
+        display_row.addWidget(self.font_size_spin)
+        self.auto_resize_check = QCheckBox("字体变化时自动扩大窗口", box)
+        self.auto_resize_check.setChecked(True)
+        self.auto_resize_check.setToolTip("字体变大后，窗口会按内容需要扩大，避免文字和控件被遮挡；不会自动缩小当前窗口。")
+        display_row.addWidget(self.auto_resize_check)
+        display_row.addStretch(1)
+        outer.addLayout(display_row)
         self.summary_label = QLabel("等待导入数据", box)
         self.summary_label.setObjectName("summaryLabel")
         outer.addWidget(self.summary_label)
@@ -484,6 +503,36 @@ class MainWindow(QMainWindow):
         outer.addWidget(self.alert_banner)
         return box
 
+    def _on_font_size_changed(self, value: float) -> None:
+        """更新全局字体，并在屏幕范围内按比例扩大窗口。"""
+        previous = self._font_point_size
+        self._font_point_size = float(value)
+        font = QFont("Microsoft YaHei UI")
+        font.setPointSizeF(self._font_point_size)
+        app = QApplication.instance()
+        if app is not None:
+            app.setFont(font)
+        self.setFont(font)
+        for widget in self.findChildren(QWidget):
+            widget.setFont(font)
+            widget.updateGeometry()
+        for table in self.findChildren(QTableWidget):
+            table.resizeColumnsToContents()
+            table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        if not self.auto_resize_check.isChecked() or self._font_point_size <= previous:
+            return
+
+        # 只按字号比例扩大，避免 sizeHint 把整个主窗口一次性撑到屏幕之外。
+        ratio = self._font_point_size / max(previous, 1.0)
+        screen = self.screen() or QApplication.primaryScreen()
+        if screen is None:
+            return
+        available = screen.availableGeometry()
+        max_width = max(self.minimumWidth(), int(available.width() * 0.95))
+        max_height = max(self.minimumHeight(), int(available.height() * 0.95))
+        target_width = min(max_width, max(self.width(), int(self.width() * ratio)))
+        target_height = min(max_height, max(self.height(), int(self.height() * ratio)))
+        self.resize(target_width, target_height)
     def _build_left_panel(self) -> QWidget:
         """左栏三块内容偏高，套一层滚动区：窗口压矮时出滚动条，而不是互相挤到重叠。"""
         panel = QWidget(self)
@@ -597,9 +646,9 @@ class MainWindow(QMainWindow):
         self.group_table.cellDoubleClicked.connect(self._on_group_double_clicked)
         self.group_table.itemChanged.connect(self._on_group_item_changed)
         header = self.group_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        for index in range(self.group_table.columnCount()):
+            header.setSectionResizeMode(index, QHeaderView.ResizeMode.Interactive)
+        self.group_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.group_table.setColumnWidth(0, 58)
         self.group_table.setColumnWidth(1, 120)
         # 左栏多了「生物学重复」一块，给分组表兜个底，别被挤成两行
@@ -657,9 +706,9 @@ class MainWindow(QMainWindow):
         self.pairing_table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows
         )
-        self.pairing_table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.Stretch
-        )
+        pairing_header = self.pairing_table.horizontalHeader()
+        pairing_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.pairing_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         layout.addWidget(self.pairing_table, 1)
 
         self.pairing_hint = QLabel("导入文件后这里会显示每个生物学重复的孔位配对", page)
@@ -700,9 +749,8 @@ class MainWindow(QMainWindow):
         self.well_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.well_table.itemChanged.connect(self._on_well_item_changed)
         header = self.well_table.horizontalHeader()
-        for index in range(len(WELL_COLUMNS) - 1):
-            header.setSectionResizeMode(index, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(len(WELL_COLUMNS) - 1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.well_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         layout.addWidget(self.well_table, 1)
 
         hint = QLabel(
@@ -736,6 +784,8 @@ class MainWindow(QMainWindow):
         self.wide_view.horizontalHeader().setVisible(False)
         self.wide_view.verticalHeader().setVisible(False)
         self.wide_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.wide_view.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.wide_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         wide_layout.addWidget(self.wide_view, 1)
         splitter.addWidget(wide_box)
 
@@ -747,7 +797,8 @@ class MainWindow(QMainWindow):
         self.summary_table.setAlternatingRowColors(True)
         self.summary_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         summary_header = self.summary_table.horizontalHeader()
-        summary_header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        summary_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.summary_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         summary_layout.addWidget(self.summary_table)
         splitter.addWidget(summary_box)
 
