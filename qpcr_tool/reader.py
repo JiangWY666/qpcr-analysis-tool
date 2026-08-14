@@ -5,11 +5,21 @@
 
 from __future__ import annotations
 
+import io
 import re
+import zipfile
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, BinaryIO
 
 from openpyxl import load_workbook
+
+# Bio-Rad CFX 偶发导出小写 ZIP 条目名（如 [content_types].xml / sharedstrings.xml）。
+# Windows 上 Excel 不区分大小写所以能开，但 openpyxl 严格按 OOXML 规范查找会失败。
+# 这里把已知关键路径归一化成规范大小写后再交给 openpyxl。
+_OOXML_CANONICAL = {
+    "[content_types].xml": "[Content_Types].xml",
+    "xl/sharedstrings.xml": "xl/sharedStrings.xml",
+}
 
 HEADER_SEARCH_ROWS = 40
 
@@ -176,10 +186,58 @@ def _read_run_info(workbook) -> list[tuple[str, str]]:
     return []
 
 
+def _needs_ooxml_case_fix(file_path: str) -> bool:
+    """ZIP 里是否有需要改回规范大小写的 OOXML 条目。"""
+    try:
+        with zipfile.ZipFile(file_path) as archive:
+            names = {name.replace("\\", "/") for name in archive.namelist()}
+    except zipfile.BadZipFile:
+        return False
+    for wrong, right in _OOXML_CANONICAL.items():
+        if wrong in names and right not in names:
+            return True
+    # 已有规范名就不改；但若只有错误大小写的变体（路径大小写混乱）也要修
+    lower_map = {name.lower(): name for name in names}
+    for wrong, right in _OOXML_CANONICAL.items():
+        if right.lower() in lower_map and lower_map[right.lower()] != right:
+            return True
+    return False
+
+
+def _normalize_ooxml_casing(file_path: str) -> BinaryIO:
+    """把 xlsx 包里的关键条目名改成 OOXML 规范大小写，返回可被 openpyxl 读取的内存流。"""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(file_path, "r") as src, zipfile.ZipFile(
+        buffer, "w", compression=zipfile.ZIP_DEFLATED
+    ) as dst:
+        used: set[str] = set()
+        for info in src.infolist():
+            original = info.filename.replace("\\", "/")
+            canonical = _OOXML_CANONICAL.get(original.lower(), original)
+            # 同一规范名只写一次，避免大小写冲突产生重复条目
+            if canonical.lower() in used:
+                continue
+            used.add(canonical.lower())
+            dst.writestr(canonical, src.read(info.filename))
+    buffer.seek(0)
+    return buffer
+
+
+def _load_workbook(file_path: str):
+    """打开工作簿；必要时先修正 CFX 导出的小写 ZIP 条目名。"""
+    if _needs_ooxml_case_fix(file_path):
+        stream = _normalize_ooxml_casing(file_path)
+        workbook = load_workbook(stream, data_only=True, read_only=True)
+        # read_only 模式会一直握着底层流，必须把流挂在 workbook 上防止被回收
+        workbook._qpcr_source_stream = stream  # type: ignore[attr-defined]
+        return workbook
+    return load_workbook(file_path, data_only=True, read_only=True)
+
+
 def read_plate(file_path: str) -> PlateData:
     """解析一个 Excel 下机文件。找不到可用表头时抛 ReaderError。"""
     try:
-        workbook = load_workbook(file_path, data_only=True, read_only=True)
+        workbook = _load_workbook(file_path)
     except Exception as exc:  # openpyxl 的异常类型很杂，统一转成可读消息
         raise ReaderError(f"无法打开文件：{exc}") from exc
 
