@@ -127,11 +127,6 @@ MERGE_TOOLTIP = (
     "「LPS BALF CIT013」这种自带数字后缀的名字会原样保留。"
 )
 
-MERGE_DISABLED_TOOLTIP = (
-    "已开启生物学重复配对，分组按原始样本名进行"
-    "（CT-1 / CT-2 / CT-3 自动回到 CT 组），该选项不适用。"
-)
-
 APP_QSS = """
 QWidget {
     background-color: #F5F6F8;
@@ -1089,14 +1084,16 @@ class MainWindow(QMainWindow):
         """重新自动聚类分组，并猜一个对照组。
 
         开启生物学重复配对时按原始样本名成组，CT-1/CT-2/CT-3 自动回到 CT 组；
-        关闭时才走样本名聚类那套。
+        关闭时才走样本名聚类那套。两种情况下「合并末尾编号」都照样生效，因为
+        PBS1/PBS2 这种「不同名的生物学重复」和「同名多孔」会同时出现在一块板上。
         """
         if self.plate is None:
             return
+        merge = self.merge_check.isChecked()
         if self.split_check.isChecked():
-            self.groups = group_by_original_sample(self.plate)
+            self.groups = group_by_original_sample(self.plate, merge)
         else:
-            self.groups = auto_group(self.plate.samples, self.merge_check.isChecked())
+            self.groups = auto_group(self.plate.samples, merge)
         self._control_index = guess_control_index([g.name for g in self.groups])
         self._populate_group_table()
         self._populate_well_table()
@@ -1459,10 +1456,8 @@ class MainWindow(QMainWindow):
             self.check_all_btn, self.check_none_btn, self.check_valid_btn, self.sort_combo,
         ):
             widget.setEnabled(loaded)
-        # 拆分开启时分组按原始样本名走，「合并末尾编号」无从谈起，置灰并说明原因
         self.direction_combo.setEnabled(loaded and split_on)
-        self.merge_check.setEnabled(loaded and not split_on)
-        self.merge_check.setToolTip(MERGE_DISABLED_TOOLTIP if split_on else MERGE_TOOLTIP)
+        self.merge_check.setEnabled(loaded)
         for widget in (self.copy_all_btn, self.copy_values_btn, self.export_btn):
             widget.setEnabled(computed)
 

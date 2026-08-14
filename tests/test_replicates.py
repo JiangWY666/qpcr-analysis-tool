@@ -268,6 +268,52 @@ class TestGroupByOriginalSample(unittest.TestCase):
                 )
 
 
+class TestGroupByOriginalSampleMerging(unittest.TestCase):
+    """拆分与「合并末尾编号」是正交的：板上常常同时有同名多孔和 PBS1/PBS2 这种命名。"""
+
+    @staticmethod
+    def make_plate() -> PlateData:
+        """PBS1/PBS2、G43-L1/G43-L2、BLM1/BLM2 各带两个技术孔。"""
+        rows = []
+        names = ["PBS1", "G43-L1", "PBS2", "G43-L2", "BLM1", "BLM2"]
+        for gene_index, gene in enumerate(["GAPDH", "IL6"]):
+            for offset in (0, 1):
+                row = chr(ord("A") + gene_index * 2 + offset)
+                for column, sample in enumerate(names, start=1):
+                    rows.append((f"{row}{column:02d}", gene, sample, 20.0 + column))
+        return build_plate(rows)
+
+    def test_不合并时每个样本名各自成组(self):
+        plate = self.make_plate()
+        split_biological_replicates(plate)
+        groups = group_by_original_sample(plate)
+        self.assertEqual(
+            [g.name for g in groups],
+            ["PBS1", "G43-L1", "PBS2", "G43-L2", "BLM1", "BLM2"],
+        )
+
+    def test_合并后按去掉末尾编号的原始样本名成组(self):
+        plate = self.make_plate()
+        split_biological_replicates(plate)
+        groups = group_by_original_sample(plate, merge_trailing_numbers=True)
+        self.assertEqual([g.name for g in groups], ["PBS", "G43-L", "BLM"])
+        # 组内保留拆分后的虚拟样本名，顺序仍按原始样本在文件里的出现顺序
+        self.assertEqual(
+            groups[0].samples, ["PBS1-1", "PBS1-2", "PBS2-1", "PBS2-2"]
+        )
+
+    def test_剥不出同伴的名字不会被截断(self):
+        """「LPS BALF CIT013」这类自带数字后缀的名字必须原样保留。"""
+        plate = build_plate([
+            ("A01", "GAPDH", "PBS1", 20.0), ("A02", "GAPDH", "PBS2", 20.1),
+            ("A03", "GAPDH", "LPS BALF CIT013", 20.2),
+            ("B01", "IL6", "PBS1", 25.0), ("B02", "IL6", "PBS2", 25.1),
+            ("B03", "IL6", "LPS BALF CIT013", 25.2),
+        ])
+        groups = group_by_original_sample(plate, merge_trailing_numbers=True)
+        self.assertEqual([g.name for g in groups], ["PBS", "LPS BALF CIT013"])
+
+
 @requires_sample_file
 class TestSplitChangesResults(unittest.TestCase):
     """拆分必须真的改变数值，否则这个功能就是摆设。"""

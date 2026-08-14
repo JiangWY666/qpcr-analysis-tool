@@ -19,7 +19,7 @@ try:  # 兼容 discover -s tests、python -m unittest tests.xxx、直接运行�
 except ImportError:
     from _fixtures import SAMPLE_FILE, requires_sample_file
 
-from openpyxl import load_workbook  # noqa: E402
+from openpyxl import Workbook, load_workbook  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402 - 必须在设置环境变量之后
 
 from qpcr_tool.gui import MainWindow  # noqa: E402
@@ -41,6 +41,29 @@ def sample_file() -> str:
     return str(SAMPLE_FILE)
 
 
+def write_plate_file(
+    directory: str, name: str, samples: list[str], targets: list[str]
+) -> str:
+    """写一份最小可读的下机表：每个 (基因, 样本) 两个横向排列的孔。
+
+    用于不依赖真实数据、需要特定样本命名的用例。
+    """
+    book = Workbook()
+    sheet = book.active
+    sheet.append(["Well", "Target", "Sample", "Cq"])
+    for gene_index, target in enumerate(targets):
+        for offset in (0, 1):
+            row_letter = chr(ord("A") + gene_index * 2 + offset)
+            for column, sample in enumerate(samples, start=1):
+                sheet.append(
+                    [f"{row_letter}{column:02d}", target, sample, 20.0 + column]
+                )
+    path = os.path.join(directory, name)
+    book.save(path)
+    book.close()
+    return path
+
+
 class GuiSmokeTest(unittest.TestCase):
     """整套流程都通过公开方法驱动，不弹任何对话框。"""
 
@@ -52,11 +75,14 @@ class GuiSmokeTest(unittest.TestCase):
 
     def setUp(self) -> None:
         self.window = MainWindow()
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmpdir = self._tmp.name
 
     def tearDown(self) -> None:
         self.window.close()
         self.window.deleteLater()
         self.app.processEvents()
+        self._tmp.cleanup()
 
     def test_01_window_created(self) -> None:
         self.assertEqual(self.window.windowTitle(), "qPCR 分析工具 v1.0")
@@ -110,6 +136,38 @@ class GuiSmokeTest(unittest.TestCase):
             (EXPECTED_WIDE_COLUMNS, EXPECTED_WIDE_ROWS),
         )
 
+    def test_05a_merge_checkbox_works_while_split_is_on(self) -> None:
+        """回归：PBS1/PBS2 这种「不同名的生物学重复」要能靠合并选项并成一组。
+
+        这两个开关是正交的——拆分处理同名多孔，合并处理不同名但同属一个实验组，
+        一块板上经常同时出现。曾经把合并选项置灰，用户点了没反应。
+        """
+        path = write_plate_file(
+            self.tmpdir,
+            "命名重复.xlsx",
+            samples=["PBS1", "G43-L1", "PBS2", "G43-L2"],
+            targets=["GAPDH", "IL6"],
+        )
+        self.window.load_file(path)
+
+        self.assertTrue(self.window.split_check.isChecked())
+        self.assertTrue(self.window.merge_check.isEnabled())
+        self.assertEqual(
+            [g.name for g in self.window.groups],
+            ["PBS1", "G43-L1", "PBS2", "G43-L2"],
+        )
+
+        self.window.merge_check.setChecked(True)
+        self.assertEqual([g.name for g in self.window.groups], ["PBS", "G43-L"])
+        self.assertEqual(self.window.group_table.rowCount(), 2)
+        # 组内仍是拆分后的虚拟样本名，配对关系不受并组影响
+        self.assertEqual(
+            self.window.groups[0].samples, ["PBS1-1", "PBS1-2", "PBS2-1", "PBS2-2"]
+        )
+
+        self.window.merge_check.setChecked(False)
+        self.assertEqual(len(self.window.groups), 4)
+
     @requires_sample_file
     def test_05_biological_replicate_defaults(self) -> None:
         """默认勾选生物学重复：分组回到原始样本名，孔位表显示虚拟样本与重复号。"""
@@ -122,9 +180,9 @@ class GuiSmokeTest(unittest.TestCase):
         self.assertEqual(self.window.plate.samples, VIRTUAL_SAMPLES)
         self.assertEqual([g.name for g in self.window.groups], ORIGINAL_SAMPLES)
         self.assertEqual(self.window.group_table.rowCount(), EXPECTED_GROUPS)
-        # 拆分时分组按原始样本名走，「合并末尾编号」不适用，必须置灰并说明原因
-        self.assertFalse(self.window.merge_check.isEnabled())
-        self.assertIn("不适用", self.window.merge_check.toolTip())
+        # 回归：拆分开着时「合并末尾编号」也必须可点，PBS1/PBS2 这种命名要靠它并组
+        self.assertTrue(self.window.merge_check.isEnabled())
+        self.assertFalse(self.window.merge_check.isChecked())
         self.assertTrue(self.window.direction_combo.isEnabled())
         # 无显示环境下 isVisible 恒为假，只能看有没有被显式隐藏
         self.assertTrue(self.window.alert_banner.isHidden())

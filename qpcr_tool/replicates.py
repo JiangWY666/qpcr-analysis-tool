@@ -21,7 +21,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from .grouping import SampleGroup
+from .grouping import SampleGroup, merge_keys
 from .reader import PlateData, WellRecord
 
 # 虚拟样本名的连接符：CT -> CT-1 / CT-2 / CT-3
@@ -403,21 +403,41 @@ def restore_original_samples(plate: PlateData) -> None:
         well.replicate_index = 0
 
 
-def group_by_original_sample(plate: PlateData) -> list[SampleGroup]:
+def group_by_original_sample(
+    plate: PlateData, merge_trailing_numbers: bool = False
+) -> list[SampleGroup]:
     """按拆分前的原始样本名成组，保证 CT-1/CT-2/CT-3 回到同一个 CT 组。
 
     组的顺序按原始样本名在文件里首次出现的顺序，组内虚拟样本名同理。
     未拆分的 plate 上调用同样成立，此时每个组恰好含一个样本。
+
+    merge_trailing_numbers 打开时，再按 `grouping.merge_keys` 的规则把只差末尾编号
+    的**原始**样本名并进同一组（PBS1 + PBS2 -> PBS）。这与拆分是两件正交的事：拆分
+    处理「同名多孔」，合并处理「不同名但属于同一实验组」，下机表里两种情况会同时出现。
     """
-    groups: dict[str, SampleGroup] = {}
+    order: list[str] = []
+    virtuals: dict[str, list[str]] = {}
     for well in plate.wells:
         name = _sample_key(well)
         if not name:
             continue
-        group = groups.get(name)
+        members = virtuals.get(name)
+        if members is None:
+            members = virtuals[name] = []
+            order.append(name)
+        if well.sample not in members:
+            members.append(well.sample)
+
+    keys = merge_keys(order) if merge_trailing_numbers else {}
+    groups: dict[str, SampleGroup] = {}
+    ordered: list[SampleGroup] = []
+    for name in order:
+        key = keys.get(name, name)
+        group = groups.get(key)
         if group is None:
-            group = SampleGroup(name=name)
-            groups[name] = group
-        if well.sample not in group.samples:
-            group.samples.append(well.sample)
-    return list(groups.values())
+            group = groups[key] = SampleGroup(name=key)
+            ordered.append(group)
+        for virtual in virtuals[name]:
+            if virtual not in group.samples:
+                group.samples.append(virtual)
+    return ordered
