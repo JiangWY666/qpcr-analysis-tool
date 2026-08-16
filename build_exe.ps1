@@ -61,6 +61,7 @@ if (Test-Path "$AppName.spec") { Remove-Item "$AppName.spec" -Force }
 # 全部排除掉能把体积从 200MB 压到 70MB 左右。
 $excluded = @(
     "tkinter", "unittest", "pydoc_data", "pytest", "numpy", "pandas", "matplotlib",
+    "PIL", "Pillow",
     "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.QtWebEngineQuick",
     "PySide6.QtWebChannel", "PySide6.QtWebSockets",
     "PySide6.QtQuick", "PySide6.QtQuick3D", "PySide6.QtQuickWidgets", "PySide6.QtQml",
@@ -85,7 +86,11 @@ $pyiArgs = @(
 )
 $pyiArgs += if ($OneFile) { "--onefile" } else { "--onedir" }
 foreach ($module in $excluded) { $pyiArgs += @("--exclude-module", $module) }
-if (Test-Path "assets\app.ico") { $pyiArgs += @("--icon", "assets\app.ico") }
+if (Test-Path "assets\app.ico") {
+    $pyiArgs += @("--icon", "assets\app.ico")
+    # Windows 上 --add-data 用分号分隔「源;包内相对路径」
+    $pyiArgs += @("--add-data", "assets\app.ico;assets")
+}
 $pyiArgs += "main.py"
 
 Write-Step "PyInstaller 打包中（首次构建约 1-3 分钟）"
