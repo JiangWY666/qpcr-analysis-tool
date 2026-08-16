@@ -22,7 +22,8 @@ except ImportError:
 from openpyxl import Workbook, load_workbook  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402 - 必须在设置环境变量之后
 
-from qpcr_tool.gui import WINDOW_TITLE, MainWindow  # noqa: E402
+from qpcr_tool.analysis import AnalysisError  # noqa: E402
+from qpcr_tool.gui import STALE_RESULT_MESSAGE, WINDOW_TITLE, MainWindow  # noqa: E402
 
 REFERENCE_GENE = "GAPDH"
 CONTROL_GROUP = "CT"
@@ -307,12 +308,41 @@ class GuiSmokeTest(unittest.TestCase):
         self.assertEqual(len(self.window.collect_alerts()), 2)
 
     @requires_sample_file
-    def test_10_export_keeps_the_mode_that_produced_the_numbers(self) -> None:
-        """算完再改开关时，导出的报告要跟数值对得上，明细也不能重复列孔。"""
+    def test_10_changing_parameters_invalidates_old_results(self) -> None:
+        """算完再改参数时，旧结果留在屏幕上但不能复制或导出。"""
         self.window.load_file(sample_file())
         self.window.set_reference_targets([REFERENCE_GENE])
         self.window.run_analysis()
-        self.window.set_split_enabled(False)  # 结果仍是拆分模式算出来的
+        self.window.set_split_enabled(False)
+
+        self.assertFalse(self.window.export_btn.isEnabled())
+        self.assertFalse(self.window.copy_all_btn.isEnabled())
+        self.assertFalse(self.window.copy_values_btn.isEnabled())
+        self.assertEqual(self.window.calc_btn.text(), "重新计算")
+        self.assertEqual(self.window.collect_alerts()[0], STALE_RESULT_MESSAGE)
+        self.assertIn(STALE_RESULT_MESSAGE, self.window.alert_banner.text())
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "导出.xlsx")
+            with self.assertRaises(AnalysisError) as ctx:
+                self.window.export_to(path)
+            self.assertEqual(str(ctx.exception), STALE_RESULT_MESSAGE)
+            with self.assertRaises(AnalysisError):
+                self.window.copy_to_clipboard(True)
+            self.assertFalse(os.path.exists(path))
+
+    @requires_sample_file
+    def test_11_recalculate_after_stale_exports_current_mode(self) -> None:
+        """作废后再算，导出恢复，且参数段与当前模式一致。"""
+        self.window.load_file(sample_file())
+        self.window.set_reference_targets([REFERENCE_GENE])
+        self.window.run_analysis()
+        self.window.set_split_enabled(False)
+        self.window.run_analysis()
+
+        self.assertTrue(self.window.export_btn.isEnabled())
+        self.assertEqual(self.window.calc_btn.text(), "开始计算")
+        self.assertNotIn(STALE_RESULT_MESSAGE, self.window.collect_alerts())
 
         with tempfile.TemporaryDirectory() as tmpdir:
             path = os.path.join(tmpdir, "导出.xlsx")
@@ -324,18 +354,7 @@ class GuiSmokeTest(unittest.TestCase):
                 workbook.close()
 
         params = {row[0]: row[1] for row in rows if isinstance(row[0], str)}
-        self.assertEqual(params["复孔处理模式"], "生物学重复配对（同名样本已拆分）")
-
-        header_idx = [row[0] for row in rows].index("逐孔明细") + 1
-        detail = rows[header_idx + 1: header_idx + 1 + EXPECTED_WELLS]
-        # 每个孔只能出现一次：样本名变了也不能让同一个孔既算「进了结果」又算「被排除」
-        self.assertEqual(len({(r[0], r[1]) for r in detail}), EXPECTED_WELLS)
-        self.assertEqual(len([r for r in detail if r[5] == "是"]), 36)
-        # 进了结果的孔仍带着算它时用的虚拟样本名，原样本名列能对回下机表
-        il1b = [r for r in detail if r[1] == "IL1b"]
-        self.assertEqual({r[2] for r in il1b}, {f"CT-{i}" for i in (1, 2, 3)}
-                         | {f"{s}-{i}" for s in ORIGINAL_SAMPLES[1:] for i in (1, 2, 3)})
-        self.assertEqual({r[10] for r in detail}, set(ORIGINAL_SAMPLES))
+        self.assertEqual(params["复孔处理模式"], "技术复孔取平均")
 
 
 if __name__ == "__main__":

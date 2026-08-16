@@ -74,6 +74,7 @@ from .replicates import (
 )
 
 WINDOW_TITLE = f"{APP_NAME} v{__version__}"
+STALE_RESULT_MESSAGE = "参数已修改，上次计算结果已作废，请重新点「开始计算」"
 EXCEL_SUFFIXES = (".xlsx", ".xlsm", ".xls")
 EXCEL_FILTER = "Excel 文件 (*.xlsx *.xlsm *.xls)"
 
@@ -413,8 +414,9 @@ class MainWindow(QMainWindow):
         self.wide: WideTable | None = None
         self.split_report: SplitReport | None = None
         self.previews: list[PairingPreview] = []
-        # 算结果时用的那份拆分报告。之后用户改了开关也不影响导出，报告与数值始终对得上
+        # 算结果时用的那份拆分报告，只在结果仍有效时用于导出
         self._result_report: SplitReport | None = None
+        self._results_stale = False
 
         self._control_index = 0
         self._control_buttons: QButtonGroup | None = None
@@ -885,6 +887,7 @@ class MainWindow(QMainWindow):
         self.result = result
         self.wide = build_wide_table(result)
         self._result_report = self.split_report
+        self._results_stale = False
         # QC 按原始样本名分桶，这里的键也必须是原始样本名，否则孔位表标不上黄
         self._qc_flags = {
             (item.target, item.sample): item.cq_sd
@@ -910,6 +913,8 @@ class MainWindow(QMainWindow):
         """把宽表制表符文本写进剪贴板，返回 (列数, 数据行数)。"""
         if self.wide is None:
             raise AnalysisError("还没有结果可复制，请先点「开始计算」。")
+        if self._results_stale:
+            raise AnalysisError(STALE_RESULT_MESSAGE)
         QApplication.clipboard().setText(self.wide.to_tsv(include_header=with_header))
         columns, rows = len(self.wide.columns), len(self.wide.rows)
         suffix = "含表头" if with_header else "仅数值"
@@ -922,6 +927,8 @@ class MainWindow(QMainWindow):
         """导出 Excel 结果文件，返回实际写入路径。失败时抛 ExportError。"""
         if self.result is None or self.plate is None:
             raise AnalysisError("还没有结果可导出，请先点「开始计算」。")
+        if self._results_stale:
+            raise AnalysisError(STALE_RESULT_MESSAGE)
         export_excel(self.result, self.plate, path, self._result_report)
         self.statusBar().showMessage(f"已导出到 {path}", 8000)
         return path
@@ -1411,6 +1418,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ 结果展示
 
     def _clear_results(self) -> None:
+        self._results_stale = False
         self.wide_view.clearSpans()
         self.wide_view.clear()
         self.wide_view.setRowCount(0)
@@ -1520,11 +1528,13 @@ class MainWindow(QMainWindow):
             self.warning_view.setPlainText("无异常")
 
     def collect_alerts(self) -> list[str]:
-        """需要顶到摘要行旁边的高危提示：拆分歧义、方向不一致、降级、整个生物学重复出局。
+        """需要顶到摘要行旁边的高危提示：结果作废、拆分歧义、方向不一致、降级、整个生物学重复出局。
 
         普通说明（如「没有发现需要拆分的生物学重复」）不算，免得警告条天天亮着。
         """
         alerts: list[str] = []
+        if self._results_stale:
+            alerts.append(STALE_RESULT_MESSAGE)
         if self.split_report is not None:
             alerts.extend(
                 text for text in self.split_report.warnings if text != NO_SPLIT_NEEDED
@@ -1548,18 +1558,21 @@ class MainWindow(QMainWindow):
             self.alert_banner.clear()
 
     def _mark_dirty(self) -> None:
-        """配置变了但没重算时提醒用户；不自动触发计算，避免中间态报错。"""
-        if self.result is not None:
-            self.statusBar().showMessage(
-                "参数已修改，下方结果仍是上一次的，请重新点「开始计算」", 6000
-            )
+        """配置变了但没重算时作废旧结果；不自动触发计算，避免中间态报错。"""
+        if self.result is None:
+            return
+        self._results_stale = True
+        self._update_alerts()
+        self._update_actions()
+        self.statusBar().showMessage(STALE_RESULT_MESSAGE, 6000)
 
     def _update_actions(self) -> None:
         loaded = self.plate is not None
-        computed = self.wide is not None
+        computed = self.wide is not None and not self._results_stale
         split_on = self.split_check.isChecked()
         self.run_info_btn.setEnabled(loaded and bool(self.plate.run_info))
         self.calc_btn.setEnabled(loaded)
+        self.calc_btn.setText("重新计算" if self._results_stale else "开始计算")
         for widget in (
             self.split_check, self.move_up_btn, self.move_down_btn, self.regroup_btn,
             self.check_all_btn, self.check_none_btn, self.check_valid_btn, self.sort_combo,
