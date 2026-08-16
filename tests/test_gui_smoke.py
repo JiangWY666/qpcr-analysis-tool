@@ -22,7 +22,7 @@ except ImportError:
 from openpyxl import Workbook, load_workbook  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402 - 必须在设置环境变量之后
 
-from qpcr_tool.gui import MainWindow  # noqa: E402
+from qpcr_tool.gui import WINDOW_TITLE, MainWindow  # noqa: E402
 
 REFERENCE_GENE = "GAPDH"
 CONTROL_GROUP = "CT"
@@ -85,7 +85,7 @@ class GuiSmokeTest(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_01_window_created(self) -> None:
-        self.assertEqual(self.window.windowTitle(), "qPCR 分析工具 v1.0")
+        self.assertEqual(self.window.windowTitle(), WINDOW_TITLE)
         self.assertFalse(self.window.calc_btn.isEnabled())
         self.assertFalse(self.window.export_btn.isEnabled())
 

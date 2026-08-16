@@ -52,6 +52,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from . import APP_NAME, __version__
 from .analysis import (
     MISSING_REFERENCE_PREFIX,
     SPLIT_DROPOUT_PREFIX,
@@ -72,7 +73,7 @@ from .replicates import (
     split_biological_replicates,
 )
 
-WINDOW_TITLE = "qPCR 分析工具 v1.0"
+WINDOW_TITLE = f"{APP_NAME} v{__version__}"
 EXCEL_SUFFIXES = (".xlsx", ".xlsm", ".xls")
 EXCEL_FILTER = "Excel 文件 (*.xlsx *.xlsm *.xls)"
 
