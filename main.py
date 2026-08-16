@@ -10,6 +10,7 @@ import os
 import sys
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from qpcr_tool import APP_NAME, __version__
@@ -36,6 +37,9 @@ def main() -> int:
     app.setApplicationDisplayName(APP_NAME)
     app.setApplicationVersion(__version__)
     app.setOrganizationName("qPCR Analysis Tool")
+    icon_file = resource_path(os.path.join("assets", "app.ico"))
+    if os.path.isfile(icon_file):
+        app.setWindowIcon(QIcon(icon_file))
 
     apply_theme(app)
     install_exception_hook()
