@@ -1,6 +1,6 @@
 name: release
 
-# 打 v* 标签时自动构建 exe 并挂到 GitHub Release 上，
+# 打 v* 标签时自动构建 onedir 包并挂到 GitHub Release 上，
 # 这样用户不必自己装 Python 就能下载使用。
 on:
   push:
@@ -24,18 +24,18 @@ jobs:
 
       # build_exe.ps1 会自己创建 .venv 并安装 requirements.txt，
       # 所以这里不要预装依赖，也不要传 -SkipInstall。
-      - name: 打包 exe
+      - name: 打包
         run: powershell -ExecutionPolicy Bypass -File .\build_exe.ps1
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
           name: qPCR_Analyzer
-          path: dist/qPCR_Analyzer.exe
+          path: dist/qPCR_Analyzer.zip
 
       - name: 发布到 Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/qPCR_Analyzer.exe
+          files: dist/qPCR_Analyzer.zip
           generate_release_notes: true

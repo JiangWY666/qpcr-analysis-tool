@@ -25,7 +25,7 @@
 
 ## 快速开始
 
-到 [Releases](https://github.com/JiangWY666/qpcr-analysis-tool/releases) 下载 `qPCR_Analyzer.exe`，双击运行即可，不需要装 Python。
+到 [Releases](https://github.com/JiangWY666/qpcr-analysis-tool/releases) 下载 `qPCR_Analyzer.zip`，解压后双击文件夹里的 `qPCR_Analyzer.exe` 即可，不需要装 Python。整个文件夹要一起保留，不要只拷走 exe。
 
 想先试试的话，仓库里的 `examples/demo_qPCR_data.xlsx` 是一份可以直接导入的演示数据（数值为虚构，但结构与真实的 Bio-Rad CFX 导出完全一致）。
 
@@ -154,11 +154,11 @@ python -m venv .venv
 # 跑测试
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 
-# 打包成单文件 exe，产物在 dist\qPCR_Analyzer.exe
+# 打包成文件夹，产物在 dist\qPCR_Analyzer\，发布包为 dist\qPCR_Analyzer.zip
 powershell -ExecutionPolicy Bypass -File .\build_exe.ps1
 ```
 
-打包脚本默认排除 QtWebEngine、Qt3D 等用不到的 Qt 模块来控制体积。加 `-OneDir` 参数可以打包成文件夹形式，启动速度比单文件快很多，代价是要整个文件夹一起拷贝。
+打包脚本默认排除 QtWebEngine、Qt3D 等用不到的 Qt 模块来控制体积。默认是文件夹（onedir）形式，启动时不必每次解压；加 `-OneFile` 可以打成单文件，拷贝方便但冷启动更慢。
 
 ## 项目结构
 

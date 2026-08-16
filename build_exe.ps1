@@ -1,18 +1,19 @@
 ﻿<#
-    把 qPCR 分析工具打包成单文件 exe。
+    把 qPCR 分析工具打包成文件夹（onedir），启动时不必每次解压。
 
     用法（在项目根目录执行）：
         powershell -ExecutionPolicy Bypass -File .\build_exe.ps1
         powershell -ExecutionPolicy Bypass -File .\build_exe.ps1 -SkipInstall   # 跳过依赖安装
-        powershell -ExecutionPolicy Bypass -File .\build_exe.ps1 -OneDir        # 打包成文件夹，启动更快
+        powershell -ExecutionPolicy Bypass -File .\build_exe.ps1 -OneFile       # 打包成单文件，拷贝方便但启动更慢
 
-    产物：dist\qPCR_Analyzer.exe
+    产物：dist\qPCR_Analyzer\qPCR_Analyzer.exe
+          dist\qPCR_Analyzer.zip
 #>
 
 [CmdletBinding()]
 param(
     [switch]$SkipInstall,
-    [switch]$OneDir
+    [switch]$OneFile
 )
 
 $ErrorActionPreference = "Stop"
@@ -24,6 +25,11 @@ $AppName = "qPCR_Analyzer"
 function Write-Step($message) {
     Write-Host ""
     Write-Host "==> $message" -ForegroundColor Cyan
+}
+
+function Get-FolderSizeMB($path) {
+    $bytes = (Get-ChildItem $path -Recurse -File | Measure-Object -Property Length -Sum).Sum
+    return [math]::Round($bytes / 1MB, 1)
 }
 
 # --- 1. 虚拟环境 ---
@@ -77,7 +83,7 @@ $pyiArgs = @(
     "--paths", ".",
     "--hidden-import", "openpyxl.cell._writer"
 )
-$pyiArgs += if ($OneDir) { "--onedir" } else { "--onefile" }
+$pyiArgs += if ($OneFile) { "--onefile" } else { "--onedir" }
 foreach ($module in $excluded) { $pyiArgs += @("--exclude-module", $module) }
 if (Test-Path "assets\app.ico") { $pyiArgs += @("--icon", "assets\app.ico") }
 $pyiArgs += "main.py"
@@ -87,11 +93,27 @@ Write-Step "PyInstaller 打包中（首次构建约 1-3 分钟）"
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller 打包失败。" }
 
 # --- 5. 结果 ---
-$exePath = if ($OneDir) { "dist\$AppName\$AppName.exe" } else { "dist\$AppName.exe" }
+$exePath = if ($OneFile) { "dist\$AppName.exe" } else { "dist\$AppName\$AppName.exe" }
 if (-not (Test-Path $exePath)) { throw "打包结束但没有找到 $exePath。" }
 
-$sizeMB = [math]::Round((Get-Item $exePath).Length / 1MB, 1)
+if (-not $OneFile) {
+    $dirPath = "dist\$AppName"
+    $zipPath = "dist\$AppName.zip"
+    Write-Step "压缩发布包 $zipPath"
+    Compress-Archive -Path $dirPath -DestinationPath $zipPath
+}
+
 Write-Step "打包完成"
-Write-Host "  产物：$exePath" -ForegroundColor Green
-Write-Host "  体积：$sizeMB MB" -ForegroundColor Green
-Write-Host "  双击即可运行，目标机器无需安装 Python。" -ForegroundColor Green
+if ($OneFile) {
+    $sizeMB = [math]::Round((Get-Item $exePath).Length / 1MB, 1)
+    Write-Host "  产物：$exePath" -ForegroundColor Green
+    Write-Host "  体积：$sizeMB MB" -ForegroundColor Green
+    Write-Host "  双击即可运行，目标机器无需安装 Python。" -ForegroundColor Green
+} else {
+    $sizeMB = Get-FolderSizeMB $dirPath
+    $zipMB = [math]::Round((Get-Item $zipPath).Length / 1MB, 1)
+    Write-Host "  产物：$exePath" -ForegroundColor Green
+    Write-Host "  文件夹：$sizeMB MB" -ForegroundColor Green
+    Write-Host "  发布包：$zipPath（$zipMB MB）" -ForegroundColor Green
+    Write-Host "  请整个文件夹一起拷贝，不要只拿走 exe。目标机器无需安装 Python。" -ForegroundColor Green
+}
