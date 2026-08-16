@@ -1,0 +1,14 @@
+---
+description: Pushing to GitHub also ships a GitHub Release; do not ask twice.
+alwaysApply: true
+---
+
+# GitHub 推送即发版
+
+用户说「推上 GitHub」「合并到 GitHub」或等价意思时：
+
+- 默认视为要发一版给用户下载，不要再问「要不要打 tag / 发 Release」。
+- 按现有口径升版本（用户可见改动用 patch，例如 `1.3.0` → `1.3.1`）：改 [`qpcr_tool/__init__.py`](qpcr_tool/__init__.py) 的 `__version__`，在 [`README.md`](README.md) 顶部加对应更新说明。
+- 合进 `main` 后打 annotated 标签 `vX.Y.Z` 并推送，触发 [`.github/workflows/release.yml`](.github/workflows/release.yml) 上传 `qPCR_Analyzer.zip`。
+- 等 Release 工作流结束，把 Release 链接发给用户。
+- 只有用户明确说「先别发版 / 只推代码」时才跳过打标签。

@@ -1,5 +1,9 @@
 # qPCR 分析工具
 
+## v1.3.1 更新说明
+
+- 换上自定义应用图标，exe、窗口和任务栏不再使用 PyInstaller 默认的 Python 软盘图标。
+
 ## v1.3.0 更新说明
 
 - 默认改为文件夹（onedir）打包，Release 提供 `qPCR_Analyzer.zip`。启动时不再每次解压到临时目录，低配机冷启动会快很多。
