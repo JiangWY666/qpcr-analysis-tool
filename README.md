@@ -1,5 +1,10 @@
 # qPCR 分析工具
 
+## v1.3.5 更新说明
+
+- Release 同时提供 Windows 的 `qPCR_Analyzer.zip` 和 Apple Silicon 的 `qPCR_Analyzer_macOS.zip`，Mac 用户解压出 `.app` 即可用。
+- 从网上下载的 Mac 应用第一次打开若提示「已损坏」，按 README「Mac 第一次打开」用 `xattr -cr` 解除隔离即可。
+
 ## v1.3.4 更新说明
 
 - 字体大小和「扩大窗口」收到文件路径同一行，字号框也收窄，顶栏少占一行。
@@ -50,7 +55,10 @@
 
 ## 快速开始
 
-到 [Releases](https://github.com/JiangWY666/qpcr-analysis-tool/releases) 下载 `qPCR_Analyzer.zip`，解压后双击文件夹里的 `qPCR_Analyzer.exe` 即可，不需要装 Python。整个文件夹要一起保留，不要只拷走 exe。
+到 [Releases](https://github.com/JiangWY666/qpcr-analysis-tool/releases) 按系统下载，不需要装 Python：
+
+- **Windows**：`qPCR_Analyzer.zip`，解压后双击文件夹里的 `qPCR_Analyzer.exe`。整个文件夹要一起保留，不要只拷走 exe。
+- **macOS（Apple Silicon）**：`qPCR_Analyzer_macOS.zip`，解压出 `qPCR_Analyzer.app`，拖到「应用程序」或直接双击。
 
 想先试试的话，仓库里的 `examples/demo_qPCR_data.xlsx` 是一份可以直接导入的演示数据（数值为虚构，但结构与真实的 Bio-Rad CFX 导出完全一致）。
 
@@ -60,9 +68,19 @@
 4. **核对配对预览**：切到「配对预览」页签，确认软件把哪几个孔认成了同一个生物学重复（详见下文「生物学重复配对」）
 5. **指定对照组**：单击分组行进行选择，双击该行设置为对照组，其余组都相对它归一化
 6. **点「开始计算」**，在「分析结果」页签查看宽表
-7. **导出**：点「复制到剪贴板」直接 Ctrl+V 进 Prism，或者「导出 Excel…」存成文件
+7. **导出**：点「复制到剪贴板」直接 Ctrl+V / ⌘V 进 Prism，或者「导出 Excel…」存成文件
 
 窗口顶部只有在出现需要人工确认的问题（配对方向有歧义、某个生物学重复因缺内参整体出局等）时才会弹出一条黄色警告条，平时不占地方。
+
+### Mac 第一次打开
+
+从网上下载的 `.app` 双击时，系统可能提示「已损坏，应移到废纸篓」或「无法验证开发者」。这是 Gatekeeper 隔离，不是软件坏了。在「终端」里执行（路径改成你解压出来的位置）：
+
+```bash
+xattr -cr ~/Downloads/qPCR_Analyzer.app
+```
+
+然后就可以双击打开。也可以按住 Control 单击图标，选「打开」。U 盘或 AirDrop 拷过来的一般不用这一步。
 
 ## 计算口径
 
@@ -168,22 +186,29 @@ Cq 为空、`N/A`、`Undetermined` 或非正数的孔会被判为无效，默认
 
 ## 从源码运行与打包
 
+Windows：
+
 ```powershell
-# 首次准备
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-
-# 直接运行
 .\.venv\Scripts\python.exe main.py
-
-# 跑测试
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
-
-# 打包成文件夹，产物在 dist\qPCR_Analyzer\，发布包为 dist\qPCR_Analyzer.zip
 powershell -ExecutionPolicy Bypass -File .\build_exe.ps1
 ```
 
-打包脚本默认排除 QtWebEngine、Qt3D 等用不到的 Qt 模块来控制体积。默认是文件夹（onedir）形式，启动时不必每次解压；加 `-OneFile` 可以打成单文件，拷贝方便但冷启动更慢。
+macOS：
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python main.py
+.venv/bin/python -m unittest discover -s tests -v
+./build_app.sh
+```
+
+Windows 产物在 `dist\qPCR_Analyzer\`，发布包为 `dist\qPCR_Analyzer.zip`。macOS 产物是 `dist/qPCR_Analyzer.app`，发布包为 `dist/qPCR_Analyzer_macOS.zip`（用 `ditto` 压缩，保留符号链接）。
+
+打包脚本默认排除 QtWebEngine、Qt3D 等用不到的 Qt 模块来控制体积。Windows 默认是文件夹（onedir）形式，启动时不必每次解压；加 `-OneFile` 可以打成单文件，拷贝方便但冷启动更慢。
 
 ## 项目结构
 
@@ -202,12 +227,13 @@ qPCR_analysis_tool/
 │  └─ make_demo_data.py    演示数据的生成脚本
 ├─ tests/                  单元测试与冒烟测试
 ├─ requirements.txt
-└─ build_exe.ps1           打包脚本
+├─ build_exe.ps1           Windows 打包脚本
+└─ build_app.sh            macOS 打包脚本
 ```
 
 ## 环境要求
 
-Windows 10 / 11，Python 3.10 以上（开发环境为 3.14）。依赖只有 PySide6 和 openpyxl，计算部分是纯标准库实现，没有 pandas / numpy。
+Windows 10 / 11，或 macOS 12+（Apple Silicon）。从源码运行需要 Python 3.10 以上（开发环境为 3.14）。依赖只有 PySide6 和 openpyxl，计算部分是纯标准库实现，没有 pandas / numpy。
 
 ## 关于测试数据
 
