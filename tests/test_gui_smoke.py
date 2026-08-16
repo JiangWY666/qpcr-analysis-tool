@@ -23,7 +23,12 @@ from openpyxl import Workbook, load_workbook  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402 - 必须在设置环境变量之后
 
 from qpcr_tool.analysis import AnalysisError  # noqa: E402
-from qpcr_tool.gui import STALE_RESULT_MESSAGE, WINDOW_TITLE, MainWindow  # noqa: E402
+from qpcr_tool.gui import (  # noqa: E402
+    STALE_RESULT_MESSAGE,
+    WINDOW_TITLE,
+    MainWindow,
+    is_housekeeping,
+)
 
 REFERENCE_GENE = "GAPDH"
 CONTROL_GROUP = "CT"
@@ -89,6 +94,14 @@ class GuiSmokeTest(unittest.TestCase):
         self.assertEqual(self.window.windowTitle(), WINDOW_TITLE)
         self.assertFalse(self.window.calc_btn.isEnabled())
         self.assertFalse(self.window.export_btn.isEnabled())
+
+    def test_01b_tnf_is_not_housekeeping(self) -> None:
+        """TNF 只是目标基因，不能因为和 TBP 长得像就被预勾成内参。"""
+        self.assertTrue(is_housekeeping("GAPDH"))
+        self.assertTrue(is_housekeeping("TBP"))
+        self.assertFalse(is_housekeeping("TNF"))
+        self.assertFalse(is_housekeeping("TNFa"))
+        self.assertFalse(is_housekeeping("IL6"))
 
     @requires_sample_file
     def test_02_load_sample_file(self) -> None:

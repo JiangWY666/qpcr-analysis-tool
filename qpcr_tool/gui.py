@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 import traceback
 from typing import Callable
 
-from PySide6.QtCore import QUrl, Qt
+from PySide6.QtCore import QRectF, QTimer, QUrl, Qt
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -20,9 +21,15 @@ from PySide6.QtGui import (
     QDragEnterEvent,
     QDropEvent,
     QFont,
+    QImage,
+    QPainter,
+    QPalette,
+    QPen,
 )
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QAbstractScrollArea,
+    QAbstractSpinBox,
     QApplication,
     QButtonGroup,
     QCheckBox,
@@ -42,6 +49,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QScrollArea,
+    QSizePolicy,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -145,17 +153,19 @@ QMainWindow, QDialog, QWidget#centralHost {
 QLabel, QCheckBox, QRadioButton {
     background: transparent;
 }
-QWidget#cellHost, QWidget#leftPanel, QScrollArea#leftScroll, QWidget#actionBar {
+QWidget#cellHost, QWidget#leftPanel, QWidget#tabPage, QWidget#actionBar {
     background: transparent;
     border: none;
 }
-QScrollArea#leftScroll {
-    padding: 0;
+QScrollArea#leftScroll, QScrollArea#leftScroll > QWidget > QWidget,
+QScrollArea#resultScroll, QScrollArea#resultScroll > QWidget > QWidget {
+    background: transparent;
+    border: none;
 }
 QFrame#sectionCard {
     background-color: #FBFCFC;
-    border: 1px solid #C5D4D6;
-    border-radius: 8px;
+    border: 1px solid #D2DCDE;
+    border-radius: 10px;
 }
 QFrame#sectionPlain {
     background: transparent;
@@ -170,12 +180,22 @@ QLabel#sectionTitle {
 QLabel#fieldLabel {
     color: #5E7176;
 }
-QLineEdit, QComboBox, QAbstractSpinBox, QListWidget, QTableWidget, QTextEdit {
+QLineEdit {
     background-color: #FFFFFF;
-    border: 1px solid #C5D4D6;
+    border: 1px solid #C9D5D7;
     border-radius: 6px;
-    padding: 6px 10px;
+    padding: 5px 10px;
     min-height: 22px;
+    selection-background-color: #0B6F6A;
+    selection-color: #FFFFFF;
+}
+QComboBox, QAbstractSpinBox {
+    background-color: #FFFFFF;
+    border: 1px solid #C9D5D7;
+    border-radius: 6px;
+    padding: 5px 8px 5px 10px;
+    min-height: 22px;
+    min-width: 72px;
     selection-background-color: #0B6F6A;
     selection-color: #FFFFFF;
 }
@@ -186,12 +206,9 @@ QLineEdit:read-only {
 QLineEdit:focus, QComboBox:focus, QAbstractSpinBox:focus {
     border: 1px solid #0B6F6A;
 }
-QComboBox {
-    padding-right: 22px;
-}
 QPushButton {
     background-color: #FFFFFF;
-    border: 1px solid #C5D4D6;
+    border: 1px solid #C9D5D7;
     border-radius: 6px;
     padding: 7px 16px;
     min-height: 22px;
@@ -227,6 +244,34 @@ QPushButton#primaryButton:disabled {
     border-color: #A9CBC9;
     color: #F4FAFA;
 }
+QAbstractItemView {
+    background-color: #FFFFFF;
+    alternate-background-color: #F7FAFA;
+    outline: none;
+    border: none;
+    padding: 0;
+}
+QListWidget#insetList {
+    background-color: #F4F8F8;
+    border: none;
+}
+QListWidget#insetList::item {
+    padding: 6px 8px;
+    border-radius: 4px;
+}
+QTableWidget, QTextEdit {
+    background-color: #FFFFFF;
+    alternate-background-color: #F7FAFA;
+    border: 1px solid #D2DCDE;
+    border-radius: 0;
+    padding: 0;
+    gridline-color: #E4EBEC;
+    selection-background-color: #C5E4E2;
+    selection-color: #1A2A2E;
+}
+QHeaderView {
+    background-color: #F0F5F6;
+}
 QHeaderView::section {
     background-color: #F0F5F6;
     color: #3E5559;
@@ -235,9 +280,9 @@ QHeaderView::section {
     border-bottom: 1px solid #D5E0E2;
     padding: 8px 10px;
 }
-QTableWidget {
-    gridline-color: #E4EBEC;
-    alternate-background-color: #F7FAFA;
+QTableCornerButton::section {
+    background-color: #F0F5F6;
+    border: none;
 }
 QTableWidget::item {
     padding: 6px 10px;
@@ -246,23 +291,19 @@ QTableWidget::item:selected {
     background-color: #C5E4E2;
     color: #1A2A2E;
 }
-QListWidget::item {
-    padding: 5px 8px;
-}
 QTabWidget::pane {
-    border: 1px solid #C5D4D6;
-    border-radius: 8px;
+    border: 1px solid #D2DCDE;
+    border-radius: 10px;
     background-color: #FBFCFC;
     top: 0;
     margin-top: 6px;
+    padding: 0;
 }
 QTabBar::tab {
     background-color: transparent;
     color: #5E7176;
     border: none;
     border-bottom: 2px solid transparent;
-    border-top-left-radius: 0;
-    border-top-right-radius: 0;
     margin-right: 4px;
     padding: 8px 16px;
 }
@@ -276,6 +317,30 @@ QTabBar::tab:hover {
 }
 QCheckBox, QRadioButton {
     spacing: 8px;
+}
+QScrollBar:vertical {
+    background: #E7EEF0;
+    width: 12px;
+    margin: 0;
+}
+QScrollBar::handle:vertical {
+    background: #9AABAF;
+    border-radius: 5px;
+    min-height: 28px;
+}
+QScrollBar:horizontal {
+    background: #E7EEF0;
+    height: 12px;
+    margin: 0;
+}
+QScrollBar::handle:horizontal {
+    background: #9AABAF;
+    border-radius: 5px;
+    min-width: 28px;
+}
+QScrollBar::add-line, QScrollBar::sub-line {
+    width: 0;
+    height: 0;
 }
 QSplitter::handle {
     background: transparent;
@@ -311,30 +376,6 @@ QLabel#helpBadge {
     border-radius: 10px;
     color: #0B6F6A;
     padding: 2px 8px;
-}
-QScrollBar:vertical {
-    background: transparent;
-    width: 10px;
-    margin: 2px;
-}
-QScrollBar::handle:vertical {
-    background: #C5D4D6;
-    border-radius: 4px;
-    min-height: 24px;
-}
-QScrollBar:horizontal {
-    background: transparent;
-    height: 10px;
-    margin: 2px;
-}
-QScrollBar::handle:horizontal {
-    background: #C5D4D6;
-    border-radius: 4px;
-    min-width: 24px;
-}
-QScrollBar::add-line, QScrollBar::sub-line {
-    width: 0;
-    height: 0;
 }
 """
 
@@ -404,11 +445,183 @@ def _ui_font(point_size: float, weight: QFont.Weight = QFont.Weight.Normal) -> Q
     return font
 
 
+def _light_palette() -> QPalette:
+    """Fusion 在系统暗色模式下会把未覆盖的区域画成黑块，这里锁死浅色底。"""
+    palette = QPalette()
+    ink = QColor("#1A2A2E")
+    mute = QColor("#5E7176")
+    paper = QColor("#FFFFFF")
+    bench = QColor("#E7EEF0")
+    stripe = QColor("#F7FAFA")
+    fam = QColor("#0B6F6A")
+    palette.setColor(QPalette.ColorRole.Window, bench)
+    palette.setColor(QPalette.ColorRole.WindowText, ink)
+    palette.setColor(QPalette.ColorRole.Base, paper)
+    palette.setColor(QPalette.ColorRole.AlternateBase, stripe)
+    palette.setColor(QPalette.ColorRole.Text, ink)
+    palette.setColor(QPalette.ColorRole.Button, paper)
+    palette.setColor(QPalette.ColorRole.ButtonText, ink)
+    palette.setColor(QPalette.ColorRole.BrightText, paper)
+    palette.setColor(QPalette.ColorRole.Highlight, fam)
+    palette.setColor(QPalette.ColorRole.HighlightedText, paper)
+    palette.setColor(QPalette.ColorRole.ToolTipBase, paper)
+    palette.setColor(QPalette.ColorRole.ToolTipText, ink)
+    palette.setColor(QPalette.ColorRole.PlaceholderText, mute)
+    palette.setColor(QPalette.ColorRole.Light, paper)
+    palette.setColor(QPalette.ColorRole.Midlight, QColor("#F0F5F6"))
+    palette.setColor(QPalette.ColorRole.Mid, QColor("#D2DCDE"))
+    palette.setColor(QPalette.ColorRole.Dark, mute)
+    palette.setColor(QPalette.ColorRole.Shadow, QColor("#C5D4D6"))
+    return palette
+
+
+def _ui_icon_dir() -> str:
+    folder = os.path.join(tempfile.gettempdir(), "qpcr-analysis-tool-ui")
+    os.makedirs(folder, exist_ok=True)
+    return folder
+
+
+def _paint_chevron(path: str, direction: str) -> None:
+    """画一枚清晰的三角箭头，避免 Fusion 把原生上下按钮画没。"""
+    image = QImage(20, 20, QImage.Format.Format_ARGB32)
+    image.fill(0)
+    painter = QPainter(image)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    pen = QPen(QColor("#3E5559"))
+    pen.setWidthF(2.0)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    painter.setPen(pen)
+    if direction == "down":
+        painter.drawLine(5, 7, 10, 13)
+        painter.drawLine(10, 13, 15, 7)
+    else:
+        painter.drawLine(5, 13, 10, 7)
+        painter.drawLine(10, 7, 15, 13)
+    painter.end()
+    image.save(path)
+
+
+def _paint_checkbox(path: str, checked: bool) -> None:
+    """自绘带方框的勾选标记，避免只剩一个漂浮的对勾。"""
+    image = QImage(20, 20, QImage.Format.Format_ARGB32)
+    image.fill(0)
+    painter = QPainter(image)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    box = QRectF(2.5, 2.5, 15.0, 15.0)
+    if checked:
+        painter.setBrush(QColor("#0B6F6A"))
+        painter.setPen(QPen(QColor("#0B6F6A"), 1.2))
+        painter.drawRoundedRect(box, 3.0, 3.0)
+        pen = QPen(QColor("#FFFFFF"))
+        pen.setWidthF(2.0)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        painter.drawLine(6, 10, 9, 14)
+        painter.drawLine(9, 14, 15, 7)
+    else:
+        painter.setBrush(QColor("#FFFFFF"))
+        painter.setPen(QPen(QColor("#7A8B90"), 1.5))
+        painter.drawRoundedRect(box, 3.0, 3.0)
+    painter.end()
+    image.save(path)
+
+
+def _ensure_ui_icons() -> dict[str, str]:
+    folder = _ui_icon_dir()
+    icons = {
+        "up": (os.path.join(folder, "chevron-up.png"), lambda p: _paint_chevron(p, "up")),
+        "down": (os.path.join(folder, "chevron-down.png"), lambda p: _paint_chevron(p, "down")),
+        "check_off": (os.path.join(folder, "check-off.png"), lambda p: _paint_checkbox(p, False)),
+        "check_on": (os.path.join(folder, "check-on.png"), lambda p: _paint_checkbox(p, True)),
+    }
+    paths: dict[str, str] = {}
+    for key, (path, painter) in icons.items():
+        if not os.path.isfile(path):
+            painter(path)
+        paths[key] = path
+    return paths
+
+
+def _qss_url(path: str) -> str:
+    return path.replace("\\", "/")
+
+
+def build_stylesheet() -> str:
+    """主题样式 + 自绘箭头/勾选框。图标按绝对路径写入，打包后也能找到。"""
+    icons = _ensure_ui_icons()
+    up_url = _qss_url(icons["up"])
+    down_url = _qss_url(icons["down"])
+    off_url = _qss_url(icons["check_off"])
+    on_url = _qss_url(icons["check_on"])
+    return APP_QSS + f"""
+QComboBox::drop-down {{
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 22px;
+    border: none;
+    background: transparent;
+}}
+QComboBox::down-arrow {{
+    image: url({down_url});
+    width: 10px;
+    height: 10px;
+}}
+QAbstractSpinBox::up-button, QAbstractSpinBox::down-button {{
+    width: 18px;
+    border: none;
+    background-color: #EEF3F4;
+}}
+QAbstractSpinBox::up-button:hover, QAbstractSpinBox::down-button:hover {{
+    background-color: #D7EDEC;
+}}
+QAbstractSpinBox::up-arrow {{
+    image: url({up_url});
+    width: 9px;
+    height: 9px;
+}}
+QAbstractSpinBox::down-arrow {{
+    image: url({down_url});
+    width: 9px;
+    height: 9px;
+}}
+QCheckBox::indicator, QListWidget::indicator, QListView::indicator {{
+    width: 16px;
+    height: 16px;
+}}
+QCheckBox::indicator:unchecked, QListWidget::indicator:unchecked, QListView::indicator:unchecked {{
+    image: url({off_url});
+}}
+QCheckBox::indicator:checked, QListWidget::indicator:checked, QListView::indicator:checked {{
+    image: url({on_url});
+}}
+"""
+
+
 def apply_theme(app: QApplication) -> None:
     """给整个应用套上浅色主题与中文字体。"""
     app.setStyle("Fusion")
+    app.setPalette(_light_palette())
     app.setFont(_ui_font(10.0))
-    app.setStyleSheet(APP_QSS)
+    app.setStyleSheet(build_stylesheet())
+
+
+def tune_table(table: QTableWidget, *, stretch_last: bool = True) -> None:
+    """表格不套圆角：Qt 切不干净，空隙里会露出 Fusion 的黑块。"""
+    table.setAutoFillBackground(True)
+    table.setFrameShape(QFrame.Shape.NoFrame)
+    table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    table.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustIgnored)
+    table.viewport().setAutoFillBackground(True)
+    table.viewport().setStyleSheet("background-color: #FFFFFF; border: none;")
+    header = table.horizontalHeader()
+    header.setAutoFillBackground(True)
+    header.setHighlightSections(False)
+    header.setMinimumSectionSize(56)
+    header.setStretchLastSection(stretch_last)
+    table.setProperty("stretchLast", stretch_last)
 
 
 def install_exception_hook() -> None:
@@ -449,6 +662,7 @@ class RunInfoDialog(QDialog):
             table.setItem(row, 1, QTableWidgetItem(value))
         table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        tune_table(table)
 
         close_btn = QPushButton("关闭", self)
         close_btn.clicked.connect(self.accept)
@@ -490,7 +704,8 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1120, 740)
         self.setAcceptDrops(True)
         self.setFont(_ui_font(10.0))
-        self.setStyleSheet(APP_QSS)
+        self.setPalette(_light_palette())
+        self.setStyleSheet(build_stylesheet())
 
         self._build_ui()
         self._apply_type_roles()
@@ -500,15 +715,24 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ 界面搭建
 
     def _make_section(
-        self, title: str, parent: QWidget | None = None, *, framed: bool = True
+        self,
+        title: str,
+        parent: QWidget | None = None,
+        *,
+        framed: bool = True,
+        compact: bool = False,
     ) -> tuple[QFrame, QVBoxLayout]:
         """板块标题放在卡片内部，不再骑在边框上造成叠字。"""
         box = QFrame(parent or self)
         box.setObjectName("sectionCard" if framed else "sectionPlain")
         box.setFrameShape(QFrame.Shape.NoFrame)
         layout = QVBoxLayout(box)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(10)
+        if compact:
+            layout.setContentsMargins(12, 8, 12, 8)
+            layout.setSpacing(6)
+        else:
+            layout.setContentsMargins(18, 16, 18, 16)
+            layout.setSpacing(12)
         heading = QLabel(title, box)
         heading.setObjectName("sectionTitle")
         layout.addWidget(heading)
@@ -586,6 +810,8 @@ class MainWindow(QMainWindow):
         self.font_size_spin.setSingleStep(0.5)
         self.font_size_spin.setValue(self._font_point_size)
         self.font_size_spin.setSuffix(" pt")
+        self.font_size_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.UpDownArrows)
+        self.font_size_spin.setMinimumWidth(112)
         self.font_size_spin.setToolTip("调整整个软件的字体大小。")
         self.font_size_spin.valueChanged.connect(self._on_font_size_changed)
         display_row.addWidget(self.font_size_spin)
@@ -616,6 +842,11 @@ class MainWindow(QMainWindow):
         for table in self.findChildren(QTableWidget):
             table.resizeColumnsToContents()
             table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+            stretch_last = table.property("stretchLast")
+            table.horizontalHeader().setStretchLastSection(
+                True if stretch_last is None else bool(stretch_last)
+            )
+        self._fit_result_tables()
         if not self.auto_resize_check.isChecked() or self._font_point_size <= previous:
             return
 
@@ -654,13 +885,16 @@ class MainWindow(QMainWindow):
         box, layout = self._make_section("内参基因")
 
         self.target_list = QListWidget(box)
+        self.target_list.setObjectName("insetList")
+        self.target_list.setFrameShape(QFrame.Shape.NoFrame)
+        self.target_list.setAutoFillBackground(True)
         self.target_list.itemChanged.connect(self._on_reference_changed)
         # 基因通常只有几个，别让这个列表把左栏的高度都占了
         self.target_list.setMinimumHeight(96)
         self.target_list.setMaximumHeight(150)
         layout.addWidget(self.target_list, 1)
 
-        self.reference_hint = QLabel("勾选一个或多个内参；多个时按几何平均", box)
+        self.reference_hint = QLabel("通常勾一个管家基因；多个时按几何平均", box)
         self.reference_hint.setObjectName("hintLabel")
         self.reference_hint.setWordWrap(True)
         layout.addWidget(self.reference_hint)
@@ -693,23 +927,27 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.direction_combo)
 
         layout.addWidget(self._field_label("未检出孔", box))
-        undetected_row = QHBoxLayout()
-        undetected_row.setSpacing(10)
         self.undetected_combo = QComboBox(box)
         self.undetected_combo.addItem("按最大循环数参与", "max_cycle")
         self.undetected_combo.addItem("剔除，不参与统计", "exclude")
         self.undetected_combo.setToolTip("Cq 为空、NA 或 Undetermined 的孔仍保留 Target/Sample/孔位信息；默认按最大循环数参与计算。")
         self.undetected_combo.currentIndexChanged.connect(self._on_undetected_policy_changed)
-        undetected_row.addWidget(self.undetected_combo, 1)
-        undetected_row.addWidget(self._field_label("最大循环数", box))
+        layout.addWidget(self.undetected_combo)
+
+        cycle_row = QHBoxLayout()
+        cycle_row.setSpacing(10)
+        cycle_row.addWidget(self._field_label("最大循环数", box))
         self.max_cycle_spin = QDoubleSpinBox(box)
         self.max_cycle_spin.setRange(1.0, 100.0)
         self.max_cycle_spin.setDecimals(1)
         self.max_cycle_spin.setValue(40.0)
+        self.max_cycle_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.UpDownArrows)
+        self.max_cycle_spin.setMinimumWidth(88)
         self.max_cycle_spin.setToolTip("protocol 的最大循环数，可编辑。")
         self.max_cycle_spin.valueChanged.connect(self._on_max_cycle_changed)
-        undetected_row.addWidget(self.max_cycle_spin)
-        layout.addLayout(undetected_row)
+        cycle_row.addWidget(self.max_cycle_spin)
+        cycle_row.addStretch(1)
+        layout.addLayout(cycle_row)
 
         self.split_hint = QLabel("导入文件后这里会显示拆分结果", box)
         self.split_hint.setObjectName("hintLabel")
@@ -738,6 +976,7 @@ class MainWindow(QMainWindow):
         for index in range(self.group_table.columnCount()):
             header.setSectionResizeMode(index, QHeaderView.ResizeMode.Interactive)
         self.group_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        tune_table(self.group_table)
         self.group_table.setColumnWidth(0, 64)
         self.group_table.setColumnWidth(1, 128)
         # 左栏多了「生物学重复」一块，给分组表兜个底，别被挤成两行
@@ -774,6 +1013,7 @@ class MainWindow(QMainWindow):
     def _build_pairing_tab(self) -> QWidget:
         """配对预览：用户核对「哪几个孔属于同一个生物学重复」的唯一手段。"""
         page = QWidget(self)
+        page.setObjectName("tabPage")
         layout = QVBoxLayout(page)
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(12)
@@ -796,6 +1036,7 @@ class MainWindow(QMainWindow):
         pairing_header = self.pairing_table.horizontalHeader()
         pairing_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.pairing_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        tune_table(self.pairing_table)
         layout.addWidget(self.pairing_table, 1)
 
         self.pairing_hint = QLabel("导入文件后这里会显示每个生物学重复的孔位配对", page)
@@ -806,6 +1047,7 @@ class MainWindow(QMainWindow):
 
     def _build_well_tab(self) -> QWidget:
         page = QWidget(self)
+        page.setObjectName("tabPage")
         layout = QVBoxLayout(page)
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(12)
@@ -839,6 +1081,7 @@ class MainWindow(QMainWindow):
         header = self.well_table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.well_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        tune_table(self.well_table)
         layout.addWidget(self.well_table, 1)
 
         hint = QLabel(
@@ -852,17 +1095,19 @@ class MainWindow(QMainWindow):
 
     def _build_result_tab(self) -> QWidget:
         page = QWidget(self)
+        page.setObjectName("tabPage")
         layout = QVBoxLayout(page)
         layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(12)
-
-        splitter = QSplitter(Qt.Orientation.Vertical, page)
+        layout.setSpacing(16)
 
         wide_box, wide_layout = self._make_section(
-            "宽表预览（可直接粘贴进 GraphPad Prism）", splitter, framed=False
+            "宽表预览（可直接粘贴进 GraphPad Prism）",
+            page,
+            framed=False,
+            compact=True,
         )
         self.wide_hint = QLabel(
-            "第 1 行基因、第 2 行分组，以下每行一个复孔 RQ；青列为对照。",
+            "第 1 行基因、第 2 行分组，以下每行一个复孔 RQ；青列为对照。列多时可左右滑动。",
             wide_box,
         )
         self.wide_hint.setObjectName("hintLabel")
@@ -874,10 +1119,18 @@ class MainWindow(QMainWindow):
         self.wide_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.wide_view.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.wide_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        wide_layout.addWidget(self.wide_view, 1)
-        splitter.addWidget(wide_box)
+        self.wide_view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.wide_view.setMinimumHeight(80)
+        self.wide_view.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        tune_table(self.wide_view, stretch_last=False)
+        wide_layout.addWidget(self.wide_view)
+        layout.addWidget(wide_box)
 
-        summary_box, summary_layout = self._make_section("分组汇总", splitter, framed=False)
+        summary_box, summary_layout = self._make_section(
+            "分组汇总", page, framed=False, compact=True
+        )
         self.summary_table = QTableWidget(0, len(SUMMARY_COLUMNS), summary_box)
         self.summary_table.setHorizontalHeaderLabels(SUMMARY_COLUMNS)
         self.summary_table.verticalHeader().setVisible(False)
@@ -886,19 +1139,41 @@ class MainWindow(QMainWindow):
         summary_header = self.summary_table.horizontalHeader()
         summary_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.summary_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.summary_table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.summary_table.setMinimumHeight(80)
+        self.summary_table.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        tune_table(self.summary_table)
         summary_layout.addWidget(self.summary_table)
-        splitter.addWidget(summary_box)
+        layout.addWidget(summary_box)
 
-        warning_box, warning_layout = self._make_section("警告与提示", splitter, framed=False)
+        warning_box, warning_layout = self._make_section(
+            "警告与提示", page, framed=False, compact=True
+        )
         self.warning_view = QTextEdit(warning_box)
         self.warning_view.setReadOnly(True)
+        self.warning_view.setFrameShape(QFrame.Shape.NoFrame)
+        self.warning_view.setAutoFillBackground(True)
+        self.warning_view.viewport().setAutoFillBackground(True)
+        self.warning_view.setMinimumHeight(56)
+        self.warning_view.setMaximumHeight(96)
+        self.warning_view.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum
+        )
         warning_layout.addWidget(self.warning_view)
-        splitter.addWidget(warning_box)
+        layout.addWidget(warning_box)
+        layout.addStretch(1)
 
-        splitter.setSizes([380, 270, 120])
-        layout.addWidget(splitter, 1)
+        area = QScrollArea(self)
+        area.setObjectName("resultScroll")
+        area.setWidget(page)
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.Shape.NoFrame)
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self._show_warnings()
-        return page
+        return area
 
     def _build_action_bar(self) -> QWidget:
         bar = QWidget(self)
@@ -1268,10 +1543,11 @@ class MainWindow(QMainWindow):
         selected = self.reference_targets()
         if not selected:
             self.reference_hint.setText("尚未选择内参基因，计算前必须至少勾选一个")
+        elif len(selected) == 1:
+            self.reference_hint.setText(f"当前内参：{selected[0]}")
         else:
             self.reference_hint.setText(
-                f"已选 {len(selected)} 个内参：{'、'.join(selected)}"
-                + ("（按几何平均归一化）" if len(selected) > 1 else "")
+                f"已选 {len(selected)} 个内参：{'、'.join(selected)}（按几何平均）"
             )
 
     # ------------------------------------------------------------------ 分组表格
@@ -1507,8 +1783,12 @@ class MainWindow(QMainWindow):
         self.wide_view.clear()
         self.wide_view.setRowCount(0)
         self.wide_view.setColumnCount(0)
+        self.wide_view.setMinimumHeight(80)
+        self.wide_view.setMaximumHeight(16777215)
         self.summary_table.clearContents()
         self.summary_table.setRowCount(0)
+        self.summary_table.setMinimumHeight(80)
+        self.summary_table.setMaximumHeight(16777215)
         self._show_warnings()
 
     def _populate_wide_view(self) -> None:
@@ -1567,10 +1847,40 @@ class MainWindow(QMainWindow):
                     item.setBackground(brush)
 
         view.resizeColumnsToContents()
+        self._fit_result_tables()
+        QTimer.singleShot(0, self._fit_result_tables)
         self.wide_hint.setText(
             f"第 1 行是基因、第 2 行是分组，下面每行是一个复孔的 RQ；"
             f"青列为对照组「{control}」。共 {len(wide.columns)} 列 × {len(wide.rows)} 行。"
         )
+
+    def _fit_table_to_rows(self, table: QTableWidget, *, empty_height: int = 80) -> None:
+        """按行数撑开表格，内部不再出竖向滚动条；整页不够高时由外层模块滚动。"""
+        rows = table.rowCount()
+        if rows == 0:
+            table.setMinimumHeight(empty_height)
+            table.setMaximumHeight(16777215)
+            return
+        row_height = max(26, int(self._font_point_size * 2.6))
+        for row in range(rows):
+            table.setRowHeight(row, row_height)
+        extra = 6
+        header = table.horizontalHeader()
+        if header is not None and header.isVisible():
+            extra += max(header.height(), header.sizeHint().height())
+        bar = table.horizontalScrollBar()
+        if bar is not None and bar.isVisible():
+            extra += bar.sizeHint().height()
+        height = row_height * rows + extra
+        table.setMinimumHeight(height)
+        table.setMaximumHeight(height)
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+    def _fit_result_tables(self) -> None:
+        if hasattr(self, "wide_view"):
+            self._fit_table_to_rows(self.wide_view)
+        if hasattr(self, "summary_table"):
+            self._fit_table_to_rows(self.summary_table)
 
     def _populate_summary_table(self) -> None:
         result = self.result
@@ -1597,6 +1907,9 @@ class MainWindow(QMainWindow):
                         Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
                     )
                 table.setItem(row, column, item)
+        table.resizeColumnsToContents()
+        self._fit_result_tables()
+        QTimer.singleShot(0, self._fit_result_tables)
 
     def _show_warnings(self) -> None:
         messages: list[str] = []
